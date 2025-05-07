@@ -43,7 +43,7 @@ if (Test-Path $ConfigPath) {
     exit 1
 }
 
-function Increment-IssueCount {
+function Add-Issue {
     param ([string]$Rule, [string]$File, [string]$Extra = "")
     $template = $config.message_templates.$Rule
     $message = $template -replace "{file}", $File
@@ -57,64 +57,70 @@ function Increment-IssueCount {
     $script:issues++
 }
 
-function Check-EmptyFunction {
+function Test-EmptyFunction {
     param ([string]$Content, [string]$File)
-    if ($config.enable_rules.empty_functions -and $Content -match "\bFunction\s+[A-Za-z0-9_]+\s*\(\s*\)\s*{\s*}") {
-        Increment-IssueCount "empty_functions" $File
+    if ($config.enable_rules.empty_functions -and $Content -match "\bFunction\s+[A-Za-z0-9_]+\s*\(\s*\)\s*{\s*}\s*$") {
+        Add-Issue "empty_functions" $File
     }
 }
 
-function Check-EmptyLoop {
+function Test-EmptyLoop {
     param ([string]$Content, [string]$File)
-    if ($config.enable_rules.empty_loops -and $Content -match "\b(While|For|Do)\s*\(.*\)\s*{\s*}") {
-        Increment-IssueCount "empty_loops" $File
+    if ($config.enable_rules.empty_loops -and $Content -match "\b(While|For|Do)\s*\(.*\)\s*{\s*}\s*$") {
+        Add-Issue "empty_loops" $File
     }
 }
 
-function Check-DebugTrace {
+function Test-DebugTrace {
     param ([string]$Content, [string]$File)
     if ($config.enable_rules.debug_traces -and $Content -match "Debug\.Trace") {
-        Increment-IssueCount "debug_traces" $File
+        Add-Issue "debug_traces" $File
     }
 }
 
-function Check-GlobalVariable {
+function Test-GlobalVariable {
     param ([string]$Content, [string]$File)
     if ($config.enable_rules.global_variables -and $Content -match "\bGlobalVariable\s+[A-Za-z0-9_]+") {
-        Increment-IssueCount "global_variables" $File
+        Add-Issue "global_variables" $File
     }
 }
 
-function Check-UnreachableCode {
+function Test-UnreachableCode {
     param ([string]$Content, [string]$File)
-    if ($config.enable_rules.unreachable_code -and $Content -match "Return\s*.*?\n.*?}") {
-        Increment-IssueCount "unreachable_code" $File
+    if ($config.enable_rules.unreachable_code -and $Content -match "Return\s*.*?\n.*?}\s*$") {
+        Add-Issue "unreachable_code" $File
     }
 }
 
-function Check-Complexity {
+function Test-Complexity {
     param ([string]$Content, [string]$File)
     $nestingLevel = 0
+    $scopeStack = @()
     foreach ($line in ($Content -split "`n")) {
+        # Match block entry
         if ($line -match "\b(If|ElseIf|While|For|Function)\b") {
             $nestingLevel++
+            $scopeStack += $line
         }
-        if ($line -match "}") {
+        # Match block exit
+        if ($line -match "}\s*$" -and $nestingLevel -gt 0) {
             $nestingLevel--
+            $scopeStack = $scopeStack[0..($scopeStack.Count - 2)]
         }
-        if ($nestingLevel > $config.complexity.max_nesting_level) {
-            Increment-IssueCount "complexity" $File $nestingLevel
+        # Check for over-complexity
+        if ($nestingLevel -gt $config.complexity.max_nesting_level) {
+            Add-Issue "complexity" $File $nestingLevel
         }
     }
 }
 
-function Check-UnusedVariables {
+function Test-UnusedVariables {
     param ([string]$Content, [string]$File)
     foreach ($line in ($Content -split "`n")) {
         if ($config.enable_rules.unused_variables -and $line -match "\b(Var|int|float|bool|String)\s+([A-Za-z0-9_]+)") {
             $variable = $matches[2]
             if ($Content -notmatch "\b$variable\b(?!\s*=)" -and $line -notmatch "\bFunction\b") {
-                Increment-IssueCount "unused_variables" $File $variable
+                Add-Issue "unused_variables" $File $variable
             }
         }
     }
@@ -127,13 +133,13 @@ Get-ChildItem $ScriptPath -Filter *.psc -Recurse | ForEach-Object {
     $script:filesChecked++
 
     # Run all checks
-    Check-EmptyFunction -Content $content -File $file
-    Check-EmptyLoop -Content $content -File $file
-    Check-DebugTrace -Content $content -File $file
-    Check-GlobalVariable -Content $content -File $file
-    Check-UnreachableCode -Content $content -File $file
-    Check-Complexity -Content $content -File $file
-    Check-UnusedVariables -Content $content -File $file
+    Test-EmptyFunction -Content $content -File $file
+    Test-EmptyLoop -Content $content -File $file
+    Test-DebugTrace -Content $content -File $file
+    Test-GlobalVariable -Content $content -File $file
+    Test-UnreachableCode -Content $content -File $file
+    Test-Complexity -Content $content -File $file
+    Test-UnusedVariables -Content $content -File $file
 
     if ($config.verbose) {
         Write-Host "Scanned: $file"
