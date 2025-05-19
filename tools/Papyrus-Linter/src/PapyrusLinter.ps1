@@ -103,7 +103,7 @@ function Test-Complexity {
             $scopeStack += $line
         }
         # Match block exit
-        if ($line -match "}\s*$" -and $nestingLevel -gt 0) {
+        if ($line -match "^\s*}\s*$" -and $scopeStack.Count -gt 0) {
             $nestingLevel--
             $scopeStack = $scopeStack[0..($scopeStack.Count - 2)]
         }
